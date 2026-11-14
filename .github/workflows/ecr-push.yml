@@ -1,0 +1,50 @@
+name: Build and push to ECR
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# OIDC 토큰 발급(id-token)과 소스 체크아웃(contents)만 허용
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ap-northeast-2
+  ECR_REPOSITORY: eks-practice-app
+
+jobs:
+  build-and-push:
+    # EKS 노드(x86_64)와 같은 아키텍처
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      # 장기 액세스 키 없이 OIDC로 IAM 역할 위임. 역할 ARN은 저장소 변수에서 참조
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build and push
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ steps.ecr-login.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+            ${{ steps.ecr-login.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest
+          # GitHub Actions 캐시로 Gradle 의존성 레이어 재사용
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
